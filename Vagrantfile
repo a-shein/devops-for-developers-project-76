@@ -5,6 +5,10 @@
 #   app1, app2  — два сервера с приложением (вместо Yandex Compute Cloud)
 #   proxy       — реверс-прокси/балансировщик (вместо Yandex Application Load Balancer)
 #   db          — сервер базы данных (вместо Yandex Managed PostgreSQL)
+#
+# Подготовка (pip/Docker) и деплой выполняются отдельно через `make prepare` /
+# `make deploy` (inventory.ini + playbook.yml в корне проекта), а не автоматическим
+# Vagrant-провижинером — так это ближе к реальному рабочему процессу с Ansible.
 
 VMS = {
   "db"    => { ip: "192.168.56.13", mem: 768,  cpus: 1 },
@@ -27,24 +31,12 @@ Vagrant.configure("2") do |config|
         vb.cpus = opts[:cpus]
       end
 
-      # Проброс 80 порта прокси на хост, чтобы открыть балансер в браузере
+      # Пробрасываем порты балансировщика на хост, чтобы открыть приложение в браузере:
+      #   redmine_port (http, см. group_vars/all.yml) -> localhost:8080
+      #   443 (https, самоподписанный сертификат)      -> localhost:8443
       if name == "proxy"
-        node.vm.network "forwarded_port", guest: 80, host: 8080
-      end
-
-      # Запускаем Ansible один раз, после того как поднимется последняя машина.
-      # Vagrant сам построит inventory с нужными группами и ssh-ключами.
-      if name == "proxy"
-        node.vm.provision "ansible" do |ansible|
-          ansible.playbook = "ansible/playbook.yml"
-          ansible.limit = "all"
-          ansible.become = true
-          ansible.groups = {
-            "app"      => ["app1", "app2"],
-            "dbserver" => ["db"],
-            "proxy"    => ["proxy"],
-          }
-        end
+        node.vm.network "forwarded_port", guest: 8080, host: 8080
+        node.vm.network "forwarded_port", guest: 443, host: 8443
       end
     end
   end

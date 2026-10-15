@@ -1,4 +1,5 @@
-# Подготовка окружения на всех серверах: ставим pip и Docker через роли Ansible Galaxy
+# Подготовка окружения на всех серверах: ставим pip и Docker через роли Ansible Galaxy.
+# Выполняется только `make prepare`, команда деплоя (--tags deploy) её не трогает.
 - hosts: all
   become: true
   tags: [prepare]
@@ -20,6 +21,7 @@
 # Деплой базы данных PostgreSQL в Docker-контейнере
 - hosts: dbservers
   become: true
+  tags: [deploy]
   vars:
     db_name: hexlet
     db_user: hexlet
@@ -40,9 +42,11 @@
         volumes:
           - "pgdata:/var/lib/postgresql/data"
 
-# Деплой приложения (Redmine) на веб-серверы
+# Деплой приложения (Redmine) на веб-серверы.
+# Только запуск контейнера — настройки сервера (Docker/pip) здесь не меняются.
 - hosts: webservers
   become: true
+  tags: [deploy]
   vars:
     db_host: "{{ hostvars[groups['dbservers'][0]]['ansible_host'] }}"
     db_name: hexlet
@@ -62,12 +66,14 @@
         restart_policy: always
         state: started
         ports:
-          - "0.0.0.0:80:3000"
+          - "0.0.0.0:{{ redmine_port }}:3000"
         env_file: /etc/redmine.env
 
-# Деплой реверс-прокси / балансировщика нагрузки
+# Деплой реверс-прокси / балансировщика нагрузки:
+# проброс redmine_port (http) и 443 (https, самоподписанный сертификат) на app1/app2.
 - hosts: proxy
   become: true
+  tags: [deploy]
   vars:
     app_backends: "{{ groups['webservers'] | map('extract', hostvars, 'ansible_host') | list }}"
   tasks:
@@ -76,6 +82,21 @@
         name: nginx
         state: present
         update_cache: yes
+
+    - name: Ensure TLS directory exists
+      file:
+        path: /etc/nginx/ssl
+        state: directory
+        mode: "0755"
+
+    - name: Generate self-signed TLS certificate for the project domain
+      command: >
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048
+        -keyout /etc/nginx/ssl/{{ project_domain }}.key
+        -out /etc/nginx/ssl/{{ project_domain }}.crt
+        -subj "/CN={{ project_domain }}"
+      args:
+        creates: /etc/nginx/ssl/{{ project_domain }}.crt
 
     - name: Configure load balancer
       template:
