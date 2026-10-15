@@ -5,12 +5,11 @@
 Автоматизация раскатывания контейнеризированного приложения на кластер машин в облаке
 
 Учебный проект Хекслета: https://ru.hexlet.io/programs/devops-for-developers
-Как это должно работать: https://asciinema.org/a/v4evn7XjCdou7Yh71IG0ljb0W
 
 ## Стек
 
 - Vagrant + VirtualBox — локальная симуляция облачной инфраструктуры (вместо платного облака)
-- Ansible — установка Docker и деплой контейнеров на все хосты
+- Ansible (+ Ansible Galaxy роли `geerlingguy.pip`, `geerlingguy.docker`, коллекция `community.docker`)
 - Docker — контейнеризация приложения (Redmine) и базы данных (PostgreSQL)
 - Nginx — реверс-прокси / балансировщик нагрузки (аналог Yandex Application Load Balancer)
 - PostgreSQL — база данных приложения
@@ -19,42 +18,63 @@
 
 4 виртуальные машины на приватной сети `192.168.56.0/24`, поднимаемые Vagrant:
 
-| Хост    | IP             | Роль                                   |
-|---------|----------------|----------------------------------------|
-| db      | 192.168.56.13  | PostgreSQL в Docker-контейнере         |
-| app1    | 192.168.56.11  | Redmine в Docker-контейнере (порт 80)  |
-| app2    | 192.168.56.12  | Redmine в Docker-контейнере (порт 80)  |
-| proxy   | 192.168.56.10  | Nginx — балансировщик на app1 + app2   |
+| Хост    | IP             | Группа inventory | Роль                                   |
+|---------|----------------|------------------|-----------------------------------------|
+| db      | 192.168.56.13  | dbservers        | PostgreSQL в Docker-контейнере          |
+| app1    | 192.168.56.11  | webservers       | Redmine в Docker-контейнере (порт 80)   |
+| app2    | 192.168.56.12  | webservers       | Redmine в Docker-контейнере (порт 80)   |
+| proxy   | 192.168.56.10  | proxy            | Nginx — балансировщик на app1 + app2    |
 
 Это локальный аналог продакшен-инфраструктуры из курса (два сервера с приложением,
-балансировщик нагрузки, кластер БД), развёрнутый через Ansible так же, как это
-делается на реальных облачных серверах — только вместо Yandex Compute Cloud/ALB/
-Managed PostgreSQL используются VirtualBox-машины.
+балансировщик нагрузки, кластер БД): вместо Yandex Compute Cloud / Application Load
+Balancer / Managed PostgreSQL используются VirtualBox-машины, разворачиваемые тем же
+Ansible-плейбуком, что применялся бы и для реальных серверов.
 
 ## Установка
+
+Зависимости: [Vagrant](https://www.vagrantup.com/), [VirtualBox](https://www.virtualbox.org/),
+[Ansible](https://docs.ansible.com/) (с коллекцией `community.docker`).
 
 ```bash
 git clone git@github.com:a-shein/devops-for-developers-project-76.git
 cd devops-for-developers-project-76
-vagrant up
-```
 
-Vagrant поднимет 4 VM и автоматически прогонит `ansible/playbook.yml`, который:
-1. Устанавливает Docker на все хосты
-2. Разворачивает PostgreSQL на `db`
-3. Деплоит Redmine на `app1` и `app2`, подключая к базе на `db`
-4. Настраивает Nginx-балансировщик на `proxy`
+# Поднять 4 виртуальные машины (db, app1, app2, proxy)
+vagrant up
+
+# Установить роли/коллекции Ansible Galaxy и подготовить сервера (pip + Docker)
+make prepare
+```
 
 ## Использование
 
-После `vagrant up` приложение доступно на хосте:
+Полный деплой (БД + приложение + балансировщик):
+
+```bash
+make deploy
+```
+
+После деплоя приложение доступно на хосте:
 
 ```bash
 curl http://localhost:8080/
 ```
 
-Балансировщик (`proxy`) пробрасывает порт 80 своей VM на `localhost:8080` и
+Балансировщик (`proxy`) пробрасывает порт 80 своей VM на `localhost:8080` хоста и
 распределяет запросы между `app1` и `app2` (round-robin).
+
+Пароль пользователя БД передаётся через переменную окружения `HEXLET_DB_PASSWORD`
+(если не задана — используется дефолт для локальной разработки).
+
+### Файлы
+
+- `playbook.yml` — основной плейбук (`hosts: all`): подготовка окружения, деплой БД,
+  деплой приложения, деплой балансировщика
+- `inventory.ini` — группы хостов `webservers`, `dbservers`, `proxy`
+- `requirements.yml` — роли и коллекции Ansible Galaxy
+- `group_vars/all.yml` — общие переменные (пакеты для `geerlingguy.pip`)
+- `templates/` — Jinja2-шаблоны (env-файл Redmine, конфиг Nginx)
+- `Makefile` — команды `prepare` и `deploy`
 
 ---
 

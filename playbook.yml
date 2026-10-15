@@ -1,27 +1,15 @@
-# Локальный аналог ansible/release.yml из курса Хекслета.
-# Группы хостов строит Vagrant (см. Vagrantfile): app, dbserver, proxy.
-
-- name: Setup packages
-  hosts: all
+# Подготовка окружения на всех серверах: ставим pip и Docker через роли Ansible Galaxy
+- hosts: all
   become: true
-  vars:
-    ansible_python_interpreter: /usr/bin/python3
+  tags: [prepare]
+  roles:
+    - geerlingguy.pip
+    - geerlingguy.docker
+
+  # community.docker использует собственный встроенный API-клиент. Слишком новые
+  # requests/urllib3 ломают его транспорт для unix-сокета ("http+docker"),
+  # поэтому фиксируем совместимые версии.
   tasks:
-    - name: Update packages cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
-
-    - name: Install docker and python docker bindings
-      apt:
-        name:
-          - docker.io
-          - python3-pip
-          - python3-docker
-        state: present
-
-    # community.docker ships its own bundled API client. A too-new requests/urllib3
-    # breaks its "http+docker" unix-socket transport adapter, so pin known-good versions.
     - name: Pin requests/urllib3 to versions compatible with community.docker
       pip:
         name:
@@ -29,17 +17,10 @@
           - "urllib3<2"
         executable: pip3
 
-    - name: Ensure docker is running
-      service:
-        name: docker
-        state: started
-        enabled: true
-
-- name: Deploy database
-  hosts: dbserver
+# Деплой базы данных PostgreSQL в Docker-контейнере
+- hosts: dbservers
   become: true
   vars:
-    ansible_python_interpreter: /usr/bin/python3
     db_name: hexlet
     db_user: hexlet
     db_password: "{{ lookup('env', 'HEXLET_DB_PASSWORD') | default('hexlet_local_pass', true) }}"
@@ -59,12 +40,11 @@
         volumes:
           - "pgdata:/var/lib/postgresql/data"
 
-- name: Deploy redmine
-  hosts: app
+# Деплой приложения (Redmine) на веб-серверы
+- hosts: webservers
   become: true
   vars:
-    ansible_python_interpreter: /usr/bin/python3
-    db_host: 192.168.56.13
+    db_host: "{{ hostvars[groups['dbservers'][0]]['ansible_host'] }}"
     db_name: hexlet
     db_user: hexlet
     db_password: "{{ lookup('env', 'HEXLET_DB_PASSWORD') | default('hexlet_local_pass', true) }}"
@@ -85,14 +65,11 @@
           - "0.0.0.0:80:3000"
         env_file: /etc/redmine.env
 
-- name: Deploy reverse proxy / load balancer
-  hosts: proxy
+# Деплой реверс-прокси / балансировщика нагрузки
+- hosts: proxy
   become: true
   vars:
-    ansible_python_interpreter: /usr/bin/python3
-    app_backends:
-      - 192.168.56.11
-      - 192.168.56.12
+    app_backends: "{{ groups['webservers'] | map('extract', hostvars, 'ansible_host') | list }}"
   tasks:
     - name: Install nginx
       apt:
