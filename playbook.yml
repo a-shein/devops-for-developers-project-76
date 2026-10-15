@@ -53,8 +53,10 @@
     db_host: "{{ hostvars[groups['dbservers'][0]]['ansible_host'] }}"
     db_name: hexlet
     db_user: hexlet
-    # db_password приходит из group_vars/webservers/vars.yml -> vault_db_password
-    # (group_vars/webservers/vault.yml, зашифрован Ansible Vault)
+    # db_password, datadog_api_key, datadog_checks приходят из group_vars/webservers/
+    # (vars.yml ссылается на зашифрованные значения из vault.yml)
+  roles:
+    - datadog.datadog
   tasks:
     - name: Create environment variables from template
       template:

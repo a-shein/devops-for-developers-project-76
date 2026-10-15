@@ -1,1 +1,10 @@
 db_password: "{{ vault_db_password }}"
+
+datadog_api_key: "{{ vault_datadog_api_key }}"
+
+datadog_checks:
+  http_check:
+    init_config:
+    instances:
+      - name: "Redmine on {{ inventory_hostname }}"
+        url: "http://localhost:{{ redmine_port }}/"
