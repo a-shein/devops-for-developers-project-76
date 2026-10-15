@@ -25,7 +25,9 @@
   vars:
     db_name: hexlet
     db_user: hexlet
-    db_password: "{{ lookup('env', 'HEXLET_DB_PASSWORD') | default('hexlet_local_pass', true) }}"
+    # Пароль берём из зашифрованной переменной group_vars/webservers/vault.yml —
+    # сервер БД сам не входит в группу webservers, поэтому читаем его через hostvars.
+    db_password: "{{ hostvars[groups['webservers'][0]]['db_password'] }}"
   tasks:
     - name: Run postgres container
       community.docker.docker_container:
@@ -51,7 +53,8 @@
     db_host: "{{ hostvars[groups['dbservers'][0]]['ansible_host'] }}"
     db_name: hexlet
     db_user: hexlet
-    db_password: "{{ lookup('env', 'HEXLET_DB_PASSWORD') | default('hexlet_local_pass', true) }}"
+    # db_password приходит из group_vars/webservers/vars.yml -> vault_db_password
+    # (group_vars/webservers/vault.yml, зашифрован Ansible Vault)
   tasks:
     - name: Create environment variables from template
       template:
