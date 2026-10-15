@@ -1,0 +1,4 @@
+redmine_port: 8080
+project_domain: project76.test
+vault_db_password: testpass
+vault_datadog_api_key: testkey

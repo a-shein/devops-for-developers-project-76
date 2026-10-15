@@ -3,6 +3,14 @@
 - hosts: all
   become: true
   tags: [prepare]
+  pre_tasks:
+    # Образы с заранее собранным (кешированным) apt-индексом могут успеть
+    # устареть к моменту запуска ролей — обновляем явно перед установкой.
+    - name: Refresh apt cache before installing role dependencies
+      apt:
+        update_cache: yes
+        cache_valid_time: 0
+      when: ansible_facts.os_family == "Debian"
   roles:
     - geerlingguy.pip
     - geerlingguy.docker
