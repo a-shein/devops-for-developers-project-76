@@ -1,0 +1,114 @@
+# Локальный аналог ansible/release.yml из курса Хекслета.
+# Группы хостов строит Vagrant (см. Vagrantfile): app, dbserver, proxy.
+
+- name: Setup packages
+  hosts: all
+  become: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  tasks:
+    - name: Update packages cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install docker and python docker bindings
+      apt:
+        name:
+          - docker.io
+          - python3-pip
+          - python3-docker
+        state: present
+
+    # community.docker ships its own bundled API client. A too-new requests/urllib3
+    # breaks its "http+docker" unix-socket transport adapter, so pin known-good versions.
+    - name: Pin requests/urllib3 to versions compatible with community.docker
+      pip:
+        name:
+          - "requests==2.31.0"
+          - "urllib3<2"
+        executable: pip3
+
+    - name: Ensure docker is running
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+- name: Deploy database
+  hosts: dbserver
+  become: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    db_name: hexlet
+    db_user: hexlet
+    db_password: "{{ lookup('env', 'HEXLET_DB_PASSWORD') | default('hexlet_local_pass', true) }}"
+  tasks:
+    - name: Run postgres container
+      community.docker.docker_container:
+        name: postgres
+        image: "postgres:16"
+        restart_policy: always
+        state: started
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_DB: "{{ db_name }}"
+          POSTGRES_USER: "{{ db_user }}"
+          POSTGRES_PASSWORD: "{{ db_password }}"
+        volumes:
+          - "pgdata:/var/lib/postgresql/data"
+
+- name: Deploy redmine
+  hosts: app
+  become: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    db_host: 192.168.56.13
+    db_name: hexlet
+    db_user: hexlet
+    db_password: "{{ lookup('env', 'HEXLET_DB_PASSWORD') | default('hexlet_local_pass', true) }}"
+  tasks:
+    - name: Create environment variables from template
+      template:
+        src: templates/redmine.env.j2
+        dest: /etc/redmine.env
+        mode: "0600"
+
+    - name: Run container
+      community.docker.docker_container:
+        name: redmine
+        image: "redmine:5"
+        restart_policy: always
+        state: started
+        ports:
+          - "0.0.0.0:80:3000"
+        env_file: /etc/redmine.env
+
+- name: Deploy reverse proxy / load balancer
+  hosts: proxy
+  become: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    app_backends:
+      - 192.168.56.11
+      - 192.168.56.12
+  tasks:
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    - name: Configure load balancer
+      template:
+        src: templates/nginx-lb.conf.j2
+        dest: /etc/nginx/sites-available/default
+        mode: "0644"
+      notify: Reload nginx
+
+  handlers:
+    - name: Reload nginx
+      service:
+        name: nginx
+        state: reloaded
